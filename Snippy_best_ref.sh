@@ -9,7 +9,8 @@
 ########################################################################################################
 
 
-best_ref_select() {
+run_snippy() {
+
    ##########################################
    # elegir el mejor ensamble de referencia #
    ##########################################
@@ -39,9 +40,8 @@ best_ref_select() {
             # asignar directorio de salida para guardar resultados de Snippy
             dir="SNIPPY_${ref_name}"
          fi
-      # de lo contrario
+      # si los nombres de ensables no son iguales, utiliza solamente el nombre del ensamble obtenido en base a No de contigs
       else
-         # si los nombres de ensables no son iguales, utiliza solamente el nombre del ensamble obtenido en base a No de contigs
          if [[ ${file} =~ ${name_contigs} ]]; then
             # usar ese como ensamble de referencia
             echo "####################################################################################################################"
@@ -56,16 +56,14 @@ best_ref_select() {
          fi
       fi
    done
-}
 
+   echo "######################################"
+   echo -e " Obtener Ensamble de Referencia"
+   echo "######################################"
 
-run_snippy() {
    #################
    # correr Snippy #
    #################
-
-   # obtener el mejor ensamble de referencia
-   best_ref_select
 
    # for loop para todos los ensambles dentro de la carpeta de ensambles ASSEMBLY
    for ensamble in ASSEMBLY/*.fa; do
@@ -75,13 +73,13 @@ run_snippy() {
       echo -e "\n"
       # imprime nombre de ensamble
       echo "#############################################"
-      echo "  ${ensamble}"
+      echo "  ${ensamble_name}"
       echo "#############################################"
       echo ""
 
       # ejecuta Snippy
-      #snippy --cpus $(nproc) --force --ref ${file} --outdir ${dir}/coreSNP_${ensamble_name} --ctgs ${ensamble} \
-      #--ram $(grep "MemTotal" /proc/meminfo | awk '{print $2/(1024 * 1024)}' | cut -d "." -f "1") # info de la ram, se divide para Gigas y se eliminan decimales
+      snippy --cpus $(nproc) --force --ref ${file} --outdir ${dir}/coreSNP_${ensamble_name} --ctgs ${ensamble} \
+      --ram $(grep "MemTotal" /proc/meminfo | awk '{print $2/(1024 * 1024)}' | cut -d "." -f "1") # info de la ram, se divide para Gigas y se eliminan decimales
    done
 
 #####################################################################################
@@ -91,14 +89,14 @@ run_snippy() {
    # moverse al directorio correspondiente
    cd ${dir}
 
-   echo "################################################################"
-   echo " ejecutando snippy core directamente en la ruta: $PWD"
-   echo -e "#############################################################\n"
+   echo -e "#########################"
+   echo " ejecutando snippy core "
+   echo -e "#########################\n"
 
    # ejecuta snippy-core
-   snippy-core --ref ../ASSEMBLY/$(basename ${file} | cut -d '/' -f '2') --prefix core $(echo coreSNP*)
+   snippy-core --ref ../${file} --prefix core $(echo coreSNP_*)
 
-   echo "############################################################"
+   echo -e "############################################################"
    echo "  limpiando alineamiento para generar SNPs de alta calidad  "
    echo -e "############################################################\n"
 
@@ -120,7 +118,7 @@ run_snippy() {
    # correr snp-sites, para limpiar alineamiento
    snp-sites -c gubbins.filtered_polymorphic_sites.fasta > clean.core.aln
 
-   echo "#############################################"
+   echo -e "#############################################"
    echo "  obteniendo reconstrucciones filogeneticas  "
    echo -e "#############################################\n"
 
@@ -130,10 +128,27 @@ run_snippy() {
    raxmlHPC -f a -p 1234567890 -s clean.core.aln -x 1234567890 -# 100 -m GTRGAMMA -n clean.core.newick
    # correr snp-dists, para obtener matriz de distancias de SNPs
    snp-dists -j $(nproc) clean.core.aln > Genero_SNP_matrix.tsv
+   # limpiar el archivo "Genero_SNP_matrix.tsv" (remover "coreSNP_")
+   sed -i 's/coreSNP_//g' Genero_SNP_matrix.tsv
+
+   echo -e "##################################################"
+   echo "    Limpiando archivos Newick    "
+   echo -e "##################################################"
+
+   # eliminar el string "coreSNP_" del archivo Newick de FastTree
+   sed -i 's/coreSNP_//g' FastTree_clean.core.tree
+   # eliminar el string "coreSNP_" del archivo Newick de RAxML
+   sed -i 's/coreSNP_//g' RAxML_bipartitions.clean.core.newick
+
+   # eliminar el string "-spades-assembly" del archivo Newick de RAxML
+   sed -i 's/-spades-assembly//g' RAxML_bipartitions.clean.core.newick
+   # eliminar el string "-spades-assembly" del archivo Newick de FastTree
+   sed -i 's/-spades-assembly//g' FastTree_clean.core.tree
+
 }
 
 ##################################################
 # llamar a la funcion que hace todo "run_snippy" #
 ##################################################
-
 run_snippy
+
