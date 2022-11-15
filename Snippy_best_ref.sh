@@ -5,7 +5,8 @@
 # eligiendo el mejor ensamble de referencia en base a N50 y No de contigs de ser posible, es decir,    #
 # que coincida el mejor ensamble en base a ambas estadisticas                                          #
 # de no ser asi, se elige el mejor ensamble solo en base a No de contigs                               #
-# este script requiere d las estadisticas de ensambles en /ASSEMBLY/Stats/estadisticas_ensamble.csv    #
+# este script requiere de las estadisticas de ensambles en /ASSEMBLY/Stats/estadisticas_ensamble.csv   #
+# obtenidas por assembly-stats                                                                         #
 ########################################################################################################
 
 
@@ -14,6 +15,10 @@ run_snippy() {
    ##########################################
    # elegir el mejor ensamble de referencia #
    ##########################################
+
+   echo -e "\n######################################"
+   echo -e " Obtener Ensamble de Referencia"
+   echo -e "######################################\n"
 
    # guardar valor de numero de contigs mas pequeño
    contigs_min=$(cat ASSEMBLY/Stats/estadisticas_ensamble.tsv | awk '{print $2}' | awk '/[0-9]/' | sort -n | sed -n '1p')
@@ -30,6 +35,7 @@ run_snippy() {
          # y si ademas el nombre corto del ensamble aparece en el nombre completo de ensambles de la carpeta ASSEMBLY, entonces
          if [[ ${file} =~ ${name_contigs} ]]; then
             # usar ese como ensamble de referencia
+            echo ""
             echo "####################################################################################################################"
             echo "  el siguiente genoma se selecciono en base a los valores de N50 de: ${N50_max} y No de contigs de: ${contigs_min}  "
             echo "  se usara como genoma de referencia a = ${file}                                                                    "
@@ -39,11 +45,14 @@ run_snippy() {
             ref_name=$(basename ${file} | cut -d '/' -f '2' | cut -d '.' -f '1' | cut -d '-' -f '1')
             # asignar directorio de salida para guardar resultados de Snippy
             dir="SNIPPY_${ref_name}"
+            # Asignar como variable al mejor genoma (de referencia)
+            Ref=${file}
          fi
       # si los nombres de ensables no son iguales, utiliza solamente el nombre del ensamble obtenido en base a No de contigs
       else
          if [[ ${file} =~ ${name_contigs} ]]; then
             # usar ese como ensamble de referencia
+            echo ""
             echo "####################################################################################################################"
             echo "  el siguiente genoma se selecciono en base a los valores de N50 de: ${N50_max} y No de contigs de: ${contigs_min}  "
             echo "  se usara como genoma de referencia a = ${file}                                                                    "
@@ -53,50 +62,43 @@ run_snippy() {
             ref_name=$(basename ${file} | cut -d '/' -f '2' | cut -d '.' -f '1' | cut -d '-' -f '1')
             # asignar directorio de salida para guardar resultados de Snippy
             dir="SNIPPY_${ref_name}"
+            # Asignar como variable al mejor genoma (de referencia)
+            Ref=${file}
          fi
       fi
    done
-
-   echo "######################################"
-   echo -e " Obtener Ensamble de Referencia"
-   echo "######################################"
 
    #################
    # correr Snippy #
    #################
 
-   # for loop para todos los ensambles dentro de la carpeta de ensambles ASSEMBLY
    for ensamble in ASSEMBLY/*.fa; do
-      # nombre corto de ensambles
-      ensamble_name="$(basename $ensamble .fa)"
-      # fila en blanco (espacio)
-      echo -e "\n"
-      # imprime nombre de ensamble
-      echo "#############################################"
-      echo "  ${ensamble_name}"
-      echo "#############################################"
-      echo ""
+      # for loop para todos los ensambles dentro de la carpeta de ensambles ASSEMBLY
+      ensamble_name="$(basename ${ensamble} .fa)"
+
+      echo -e "\n####################################################################################################"
+      echo -e "  Correr Snippy: para Ensamble = ${ensamble_name}, con Ref = $(basename ${Ref} | cut -d '/' -f '2')  "
+      echo -e "####################################################################################################\n"
 
       # ejecuta Snippy
-      snippy --cpus $(nproc) --force --ref ${file} --outdir ${dir}/coreSNP_${ensamble_name} --ctgs ${ensamble} \
+      snippy --cpus $(nproc) --force --ref ${Ref} --outdir ${dir}/coreSNP_${ensamble_name} --ctgs ${ensamble} \
       --ram $(grep "MemTotal" /proc/meminfo | awk '{print $2/(1024 * 1024)}' | cut -d "." -f "1") # info de la ram, se divide para Gigas y se eliminan decimales
    done
-
-#####################################################################################
-# correr snippy-core, snippy-clean. gubbins, snp-sites, fasttree, raxml y snp-dists #
-#####################################################################################
+   #####################################################################################
+   # correr snippy-core, snippy-clean. gubbins, snp-sites, fasttree, raxml y snp-dists #
+   #####################################################################################
 
    # moverse al directorio correspondiente
    cd ${dir}
 
-   echo -e "#########################"
-   echo " ejecutando snippy core "
-   echo -e "#########################\n"
+   echo -e "\n###################################################################################"
+   echo " ejecutando snippy core dentro de: ${dir}, con Ref = $(basename ${Ref} | cut -d '/' -f '2')"
+   echo -e "###################################################################################\n"
 
    # ejecuta snippy-core
-   snippy-core --ref ../${file} --prefix core $(echo coreSNP_*)
+   snippy-core --ref ../${Ref} --prefix core $(echo coreSNP_*)
 
-   echo -e "############################################################"
+   echo -e "\n############################################################"
    echo "  limpiando alineamiento para generar SNPs de alta calidad  "
    echo -e "############################################################\n"
 
@@ -115,40 +117,39 @@ run_snippy() {
       # eliminar archivos temporales
       rm tmp*
    fi
-   # correr snp-sites, para limpiar alineamiento
-   snp-sites -c gubbins.filtered_polymorphic_sites.fasta > clean.core.aln
+      # correr snp-sites, para limpiar alineamiento
+      snp-sites -c gubbins.filtered_polymorphic_sites.fasta > clean.core.aln
 
-   echo -e "#############################################"
-   echo "  obteniendo reconstrucciones filogeneticas  "
-   echo -e "#############################################\n"
+      echo -e "\n#############################################"
+      echo "  obteniendo reconstrucciones filogeneticas  "
+      echo -e "#############################################\n"
+      # correr fasttree, para hacer reconstruccion filogenetica por maximum likelihood
+      FastTree -gtr -nt clean.core.aln > FastTree_clean.core.tree
+      # correr raxml, para hacer segunda reconstruccion filogenetica por maximum likelihood (con 100 bootstraps)
+      raxmlHPC -f a -p 1234567890 -s clean.core.aln -x 1234567890 -# 100 -m GTRGAMMA -n clean.core.newick
+      # correr snp-dists, para obtener matriz de distancias de SNPs
+      snp-dists -j $(nproc) clean.core.aln > Genero_SNP_matrix.tsv
+      # limpiar el archivo "Genero_SNP_matrix.tsv" (remover "coreSNP_")
+      sed -i 's/coreSNP_//g' Genero_SNP_matrix.tsv
 
-   # correr fasttree, para hacer reconstruccion filogenetica por maximum likelihood
-   FastTree -gtr -nt clean.core.aln > FastTree_clean.core.tree
-   # correr raxml, para hacer segunda reconstruccion filogenetica por maximum likelihood (con 100 bootstraps)
-   raxmlHPC -f a -p 1234567890 -s clean.core.aln -x 1234567890 -# 100 -m GTRGAMMA -n clean.core.newick
-   # correr snp-dists, para obtener matriz de distancias de SNPs
-   snp-dists -j $(nproc) clean.core.aln > Genero_SNP_matrix.tsv
-   # limpiar el archivo "Genero_SNP_matrix.tsv" (remover "coreSNP_")
-   sed -i 's/coreSNP_//g' Genero_SNP_matrix.tsv
+      echo -e "\n####################################################"
+      echo "   Limpiando archivos Newick y Matriz de distancias   "
+      echo -e "####################################################\n"
+      # eliminar el string "-spades-assembly" del archivo
+      sed -i 's/-spades-assembly//g' Genero_SNP_matrix.tsv
 
-   echo -e "##################################################"
-   echo "    Limpiando archivos Newick    "
-   echo -e "##################################################"
+      # eliminar el string "coreSNP_" del archivo Newick de FastTree
+      sed -i 's/coreSNP_//g' FastTree_clean.core.tree
+      # eliminar el string "coreSNP_" del archivo Newick de RAxML
+      sed -i 's/coreSNP_//g' RAxML_bipartitions.clean.core.newick
 
-   # eliminar el string "coreSNP_" del archivo Newick de FastTree
-   sed -i 's/coreSNP_//g' FastTree_clean.core.tree
-   # eliminar el string "coreSNP_" del archivo Newick de RAxML
-   sed -i 's/coreSNP_//g' RAxML_bipartitions.clean.core.newick
-
-   # eliminar el string "-spades-assembly" del archivo Newick de RAxML
-   sed -i 's/-spades-assembly//g' RAxML_bipartitions.clean.core.newick
-   # eliminar el string "-spades-assembly" del archivo Newick de FastTree
-   sed -i 's/-spades-assembly//g' FastTree_clean.core.tree
-
+      # eliminar el string "-spades-assembly" del archivo Newick de RAxML
+      sed -i 's/-spades-assembly//g' RAxML_bipartitions.clean.core.newick
+      # eliminar el string "-spades-assembly" del archivo Newick de FastTree
+      sed -i 's/-spades-assembly//g' FastTree_clean.core.tree
 }
 
 ##################################################
 # llamar a la funcion que hace todo "run_snippy" #
 ##################################################
 run_snippy
-
