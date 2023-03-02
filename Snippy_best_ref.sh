@@ -1,14 +1,64 @@
 #!/bin/bash
 
-########################################################################################################
-# correr snippy sobre todos los ensambles en un directorio (ASSEMBLY)                                  #
-# eligiendo el mejor ensamble de referencia en base a N50 y No de contigs de ser posible, es decir,    #
-# que coincida el mejor ensamble en base a ambas estadisticas                                          #
-# de no ser asi, se elige el mejor ensamble solo en base a No de contigs                               #
-# este script requiere de las estadisticas de ensambles en /ASSEMBLY/Stats/estadisticas_ensamble.csv   #
-# obtenidas por assembly-stats                                                                         #
-########################################################################################################
+#
+# correr snippy en modo de una sola secuencia sobre elementos en una carpeta
+#
 
+run_stats(){
+
+# crear directorio de trabajo
+mkdir ASSEMBLY/Stats
+
+# volver variable directorio de trabajo
+dir="ASSEMBLY/Stats"
+
+# --------------------------------------------------------------------
+# primer loop, creacion de archivos de estadisticas con assembly-stats
+# --------------------------------------------------------------------
+# NOTA: assembly-stats no obtiene profundidad, se debe obtener por separado
+
+for ensamble in ASSEMBLY/*.fa; do
+   ename=$(basename ${ensamble} | cut -d "-" -f "1") # asignar nombre de ensamble ( más corto)
+   assembly-stats ${ensamble} > ASSEMBLY/Stats/${ename}-stats.txt # crea un archivo de stats por ensamble
+done
+
+# ------------------------------------------------------------------------------------
+#    segundo loop, creacion del archivo final formato .csv con todas las stadisticas
+# ------------------------------------------------------------------------------------
+
+# Generar un archivo y poner los nombres de columnas
+echo -e "ID,Contigs,Length,Largest_contig,N50,N90,N_count,Gaps" > ${dir}/estadisticas_ensamble.csv
+
+# ordenar y agrupar estadisticas estadisticas a partir de estadisticas obtenidas por 1er loop
+for file in ${dir}/*stats*; do
+   # asignar nombre de ensamble (corto)
+   fname="$(basename $file | cut -d '-' -f '1')"
+   # obtener numero de contigs
+   contigs=$(cat ${file} | sed -n '2p' | cut -d ',' -f '2' | cut -d ' ' -f '4')
+   # obtener longitud del ensamble
+   length=$(cat ${file} | sed -n '2p' | cut -d ',' -f '1' | cut -d ' ' -f '3')
+   # obtener tamaño de contig mas grande
+   largest=$(cat ${file} | sed -n '2p' | cut -d ',' -f '4' | cut -d ' ' -f '4')
+   # obtener N50
+   N50=$(cat ${file} | sed -n '3p' | cut -d ',' -f '1' | cut -d ' ' -f '3')
+   # obtener N90
+   N90=$(cat ${file} | sed -n '7p' | cut -d ',' -f '1' | cut -d ' ' -f '3')
+   # obtener Ns
+   n_count=$(cat ${file} | sed -n '9p' | cut -d ',' -f '1' | cut -d ' ' -f '3')
+   # obtener gaps
+   gaps=$(cat ${file} | sed -n '10p' | cut -d ',' -f '1' | cut -d ' ' -f '3')
+   # crea filas de archivo con datos obtenidos en las 3 filas anteriores
+   echo -e "$fname,$contigs,$length,$largest,$N50,$N90,$n_count,$gaps"
+# anexa lo generado por el loop en el archivo creado antes del loop
+done >> ${dir}/estadisticas_ensamble.csv
+
+# eliminar '-stats.txt'
+sed -i 's/-stats.txt//g' ${dir}/estadisticas_ensamble.csv
+
+# convertir archivo CSV a TSV
+sed 's/,/\t/g' ${dir}/estadisticas_ensamble.csv > ${dir}/estadisticas_ensamble.tsv
+
+}
 
 run_snippy() {
 
@@ -74,7 +124,7 @@ run_snippy() {
 
    for ensamble in ASSEMBLY/*.fa; do
       # for loop para todos los ensambles dentro de la carpeta de ensambles ASSEMBLY
-      ensamble_name="$(basename ${ensamble} .fa)"
+      ensamble_name="$(basename ${ensamble} -spades-assembly.fa)"
 
       echo -e "\n####################################################################################################"
       echo -e "  Correr Snippy: para Ensamble = ${ensamble_name}, con Ref = $(basename ${Ref} | cut -d '/' -f '2')  "
@@ -152,4 +202,5 @@ run_snippy() {
 ##################################################
 # llamar a la funcion que hace todo "run_snippy" #
 ##################################################
+run_stats
 run_snippy
